@@ -1,0 +1,159 @@
+<html>
+<head>
+  <style>
+    body {
+      margin: 0px;
+    }
+
+    #game {
+      width: 100%;
+      height: 100%;
+      border: 1px black solid;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <script>
+    // declare the two variables at once using a comma
+    var canvas = document.getElementById("game"),
+        context = canvas.getContext("2d");
+    // now you're ready to draw
+
+    var ws;
+    console.dir(context)
+
+    // Support both the WebSocket and MozWebSocket objects
+    if ((typeof(WebSocket) == 'undefined') &&
+        (typeof(MozWebSocket) != 'undefined')) {
+      WebSocket = MozWebSocket;
+    }
+
+    var frameCount = 0;
+
+    var translateIntoGamespace = function(finger) {
+      var x = (finger.tip.position[0] + 50) * 6;
+      var y = canvas.height - (finger.tip.position[1] - 80) * 6;
+      if (x >= 0 && x <= canvas.width && y >= 0 && y <= canvas.height) {
+        return [x, y, finger.tip.position[2]];
+      } else {
+        return null;
+      }
+    };
+
+    var fingers = [];
+
+    // Create the socket with event handlers
+    function init() {
+      //Create and open the socket
+      ws = new WebSocket("ws://localhost:6437/");
+      
+      // On successful connection
+      ws.onopen = function(event) {
+        console.log("WebSocket connection open!");
+      };
+      
+      // On message received
+      ws.onmessage = function(event) {
+        frameCount++;
+        var obj = JSON.parse(event.data);
+        fingers.length = 0;
+        for (var handIndex in obj.hands) {
+          var hand = obj.hands[handIndex];
+          for (var fingerIndex in hand.fingers) {
+            fingers.push(hand.fingers[fingerIndex]);
+          }
+        }
+      };
+      
+      // On socket close
+      ws.onclose = function(event) {
+        ws = null;
+        console.log("WebSocket connection closed");
+      }
+      
+      //On socket error
+      ws.onerror = function(event) {
+        console.log("Received error");
+      };
+
+    }
+    init();
+
+    var comets = [];
+    var time = new Date().getTime();
+
+    var Comet = function(x, y) {
+      this.x = x;
+      this.y = y;
+      this.dx = 0.0;
+      this.dy = 0.0;
+      this.lastDraw = new Date().getTime();
+    };
+
+    Comet.prototype.move = function() {
+      var now = new Date().getTime();
+      var interval = now - this.lastDraw;
+      this.lastDraw = now;
+      this.x += this.dx * (interval / 1000.0);
+      this.y += this.dy * (interval / 1000.0);
+
+      for (var fingerIndex in fingers) {
+        var finger = fingers[fingerIndex];
+        var coords = translateIntoGamespace(finger);
+        if (coords && coords[2] < 0) {
+          var x2 = Math.pow(this.x - coords[0], 2);
+          var y2 = Math.pow(this.y - coords[1], 2);
+          var r2 = x2 + y2;
+          var magX = -coords[2] * x2 / r2 / 5;
+          var magY = -coords[2] * y2 / r2 / 5;
+          this.dx += this.x - coords[0] < 0 ? magX : -magX;
+          this.dy += this.y - coords[1] < 0 ? magY : -magY;
+        }
+      }
+
+      if (this.x < 0 || this.x > canvas.width) {
+        this.dx *= -0.8;
+      }
+
+      if (this.y < 0 || this.y > canvas.height) {
+        this.dy *= -0.8;
+      }
+    };
+
+    comets.push(new Comet(10, 30));
+    comets.push(new Comet(40, 100));
+    comets.push(new Comet(50, 20));
+
+    function draw() {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      for (var fingerIndex in fingers) {
+        var finger = fingers[fingerIndex];
+        var x = finger.tip.position[0];
+        var y = finger.tip.position[1];
+        var coords = translateIntoGamespace(finger);
+        var size = Math.abs(finger.tip.position[2]);
+        context.fillStyle = finger.tip.position[2] < 0 ? 'blue' : 'green';
+        if (coords) {
+          context.beginPath(); 
+          context.arc(coords[0] - (size / 2), coords[1]  - (size / 2), size, 0, Math.PI*2, true);  
+          context.closePath(); 
+          context.fill();
+        }
+      }
+
+      for (var cometIndex in comets) {
+        var comet = comets[cometIndex];
+        comet.move();
+        context.beginPath(); 
+        context.arc(comet.x, comet.y, 15, 0, Math.PI*2, true);  
+        context.closePath();
+        context.fillStyle = 'red';
+        context.fill();
+      }
+      window.webkitRequestAnimationFrame(draw);
+    }
+    draw();
+  </script>
+</body>
+</html>
